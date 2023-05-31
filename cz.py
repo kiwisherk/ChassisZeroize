@@ -28,7 +28,7 @@ def ParseArgs():
     group.add_argument('--msg', '-m')
     args = parser.parse_args()
 
-    return(args.port, args.debug, args.user, args.password, args.msg, args.conf, args)
+    return(args.port, args.debug, args.user, args.password, args.msg, args.conf, args.reboot, args.zero)
 
 #
 # ParseConfigFile
@@ -213,9 +213,9 @@ def Login():
 
 if __name__ == "__main__":
 
-    (port, Debug, user, password, msg, conf, args) = ParseArgs()
+    (port, Debug, user, password, msg, conf, reboot, zero) = ParseArgs()
 
-#    print(f'Msg: {args.msg}\nReboot: {args.reboot}\nZeroize: {args.zero}')
+    print(f'Msg: {args.msg}\nReboot: {reboot}\nZeroize: {zero}')
 
 #    print(f'Port: {port}')
 #    print(f'{user}.*>')
@@ -260,9 +260,9 @@ if __name__ == "__main__":
 
         elif i == 4:
             print('Got prompt. ')
-            if (args.msg):
+            if (msg):
                 Msg(user, msg)          
-            elif (args.reboot):
+            elif (reboot):
                 Reboot()
             else:
                 Zeroize()
