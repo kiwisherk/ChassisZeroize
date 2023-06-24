@@ -8,10 +8,11 @@ import configparser
 import os
 import syslog
 import datetime
+import atexit
 
 ip="127.0.0.1"
 Debug = 0
-
+name = __file__
 #----                                                                                                        
 # Read the command line for the arguments
 #                                                                                                         
@@ -44,6 +45,7 @@ def ParseConfigFile(file):
             parser.read(file)
     except IOError:
         print(f"Can't read config file {file}")
+        syslog.syslog(f"Can't open config file:{file}. Aborting!")        
         exit()
         
     cz = parser['cz']
@@ -80,8 +82,8 @@ def ParseConfigFile(file):
 #
 def OpenLog(file):
 
-    if os.path.isfile(file):
-        os.rename(file, file+".old")
+#    if os.path.isfile(file):
+#        os.rename(file, file+".old")
     try:
         f = open(file, 'w')
     except:
@@ -104,7 +106,7 @@ def Log(flag, msg):
 # PidFile
 #
 def PidFile():
-
+    global name
     try:
         pid = os.getpid()
     except:
@@ -118,8 +120,21 @@ def PidFile():
         syslog.syslog('Failed to open PID file!')
         exit()
     f.write(str(pid))
+    atexit.register(TidyUp)
     f.close()
-    
+
+#
+# Tidy Up
+#
+def TidyUp():
+    global name
+#    name = os.path.basename(__file__)
+    file = f'/run/{name}.pid'
+    Log(1, 'Removing PID file.')
+    if os.path.exists(file):
+        os.remove(file)
+    else:
+        Log(1, 'Error: PID file not found')
 #
 # Reboot
 #
@@ -152,7 +167,9 @@ def Reboot():
 #
 def Zeroize():
     Log( 0,'In Zeroize...')
-    exit()
+#    exit()
+    time.sleep(15)
+    return()
     conn.sendline('request system zeroize')
 
 #    i = conn.expect(['will be zeroized ', pexpect.TIMEOUT], timeout=3)
@@ -223,17 +240,20 @@ def Login():
 
     elif i == 2:
         Log( 1,'Timeout in Login')
-        exit()
+#        exit()
+        return()        
     Log( 0,'Look for prompt')
 
     i = conn.expect(['Login incorrect', pexpect.TIMEOUT, f'{user}@', f'{user}>' ], timeout=60)
 
     if i == 0:
         Log( 1,f'Password does not work!')
-        exit()
+#        exit()
+        return()        
     elif i == 1:
         Log( 1,f'Timed out waiting for prompt.')
-        exit()
+#        exit()
+        return()        
     elif i == 2:
         Log( 1,'Logged in...')
     return
@@ -245,9 +265,9 @@ def Login():
 
 if __name__ == "__main__":
 
-
-
-    (port, debug, user, password, reboot, zero, logfile) = ParseConfigFile('./cz.conf')
+    syslog.syslog('Starting cz...')
+#    (port, debug, user, password, reboot, zero, logfile) = ParseConfigFile('./cz.conf')
+    (port, debug, user, password, reboot, zero, logfile) = ParseConfigFile('/etc/cz.conf')    
 
     lf = OpenLog(logfile)
 
@@ -264,7 +284,7 @@ if __name__ == "__main__":
     Log( 0,f'Reboot: {reboot}')
 
     PidFile()
-    exit()
+#    exit()
     
     conn = pexpect.spawn(f"telnet {ip} {port}")
 
@@ -296,6 +316,7 @@ if __name__ == "__main__":
         elif i == 3:
             Log( 0,'Got Port in use ')
             conn.close()
+            time.sleep(5)
             conn = pexpect.spawn(f"telnet {ip} {port}")
             
         elif i == 4:
