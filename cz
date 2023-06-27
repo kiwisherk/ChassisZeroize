@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 
+# This script solves a specific problem. One can't zeroize a Chassis Cluster of Juniper EX switches from a central
+# location. If you issue 'request system zeroize', only the main RE gets zeroized. To solve this probem, I've written
+# this script. It uses Python Expect to login to a switch and issue the zeroize command. Multiple copies of this
+# script are meant to be run in parallel, one per serial port/USB port. It runs continually, so the user only has
+# to plug the serial cabel into the EX switch and the script will instruct the device to zeroize itself and then to
+# power down. The user knows that the job is done when the lights go out on the switch. 
+# It has only been tested on a Raspberry Pi, but there is no reason it couldn't run on any system with serial ports
+# and Python.
+
+# Various modules used by the script.
 import argparse
 import pexpect
 import time
@@ -10,9 +20,16 @@ import syslog
 import datetime
 import atexit
 
+# We use the ser2net program to connect a TCP session to the USB port. To keep it simple, we connect to the loopback
+# interface
 ip="127.0.0.1"
+
+# By defaul, we don't run with debug
 Debug = 0
+
+# We have multple copies runnings: cz0, cz1, cz2 etc...
 name = __file__
+
 #----                                                                                                        
 # Read the command line for the arguments
 #                                                                                                         
@@ -26,6 +43,7 @@ def ParseArgs():
     parser.add_argument('--password', '-w')
     parser.add_argument('--logfile', '-l')    
     parser.add_argument('--debug', '-d', action='store_true')    
+# We don't use the reboot() function. I developed it as part of testing. It works, so I left it in the script
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--zero', '-z', action='store_true')
     group.add_argument('--reboot', '-r', action='store_true')
@@ -35,6 +53,17 @@ def ParseArgs():
 
 #
 # ParseConfigFile
+# The config file lives in /etc. It has one section per instance of the script. [cz0] [cz1]
+# Probably only the port will be different.
+# sherk@ErikPi4:~ $ more /etc/cz.conf 
+# [cz0]
+# port = 7000
+# user = sherk
+# password = Juniper123
+# debug = False
+# zero = True
+# reboot = False
+# logfile = /var/log/cz0.out
 #
 def ParseConfigFile(file):
 
@@ -58,6 +87,7 @@ def ParseConfigFile(file):
     reboot = cz['reboot']
     logfile = cz['logfile']
 
+# Command line arguments override variables in the config file.    
     args = ParseArgs()
 
     if args.port:
@@ -79,11 +109,14 @@ def ParseConfigFile(file):
 
 #
 # OpenLog
+# 
+# Almost all output from the script goes into a log file. Open the log file here and return a file handle
 #
 def OpenLog(file):
 
-#    if os.path.isfile(file):
-#        os.rename(file, file+".old")
+    if os.path.isfile(file):
+        os.rename(file, file+".old")
+
     try:
         f = open(file, 'w')
     except:
@@ -93,8 +126,11 @@ def OpenLog(file):
     f.write('\n')
     f.flush()
     return(f)
+
 #
 # Log
+# Write any message to the log file. Most messages are formated like Log( 0, "msg...", so they will show up
+# when Debug is True. If called with a 1, they will always be written
 #
 def Log(flag, msg):
     global Debug
@@ -104,6 +140,7 @@ def Log(flag, msg):
         lf.flush()
 #
 # PidFile
+# The PID file is used by systemctl to see if the program is running.
 #
 def PidFile():
     global name
@@ -125,10 +162,11 @@ def PidFile():
 
 #
 # Tidy Up
+# When we exit, remove the PID file
 #
 def TidyUp():
     global name
-#    name = os.path.basename(__file__)
+
     file = f'/run/{name}.pid'
     Log(1, 'Removing PID file.')
     if os.path.exists(file):
@@ -137,6 +175,8 @@ def TidyUp():
         Log(1, 'Error: PID file not found')
 #
 # Reboot
+# This routine isn't really used in the final version. It was used while I developed the script. It is still
+# here because it works and might be useful someday.
 #
 def Reboot():
     Log( 0,'In Reboot...')
@@ -164,10 +204,13 @@ def Reboot():
 
 #
 # Zeroize
+# This is the meat of the script. It expects to already be logged into the switch. It issues the command
+# to zeroize the switch and then waits for the zeroization to finish. It then logs back in and powers off
+# the switch.
 #
 def Zeroize():
     Log( 0,'In Zeroize...')
-#    exit()
+
     time.sleep(15)
     return()
     conn.sendline('request system zeroize')
@@ -209,19 +252,25 @@ def Zeroize():
     if (i == 1):
         Log( 1,'Timeout waiting for CLI prompt after Zeroizing.')
         return
+
     Log( 0,'request power off')
     conn.sendline('request system power-off')
     time.sleep(1)
+
     i = conn.expect(['Power Off the system ', pexpect.TIMEOUT], timeout=15)
     if ( i == 1 ):
         Log( 0,'Timeout waiting for "Power Off the system"')
         return
+
     Log( 0,'send yes')
     conn.sendline('yes')
     time.sleep(30)
     return
+
 #
 # Login
+# The routine logs into the switch. Should work on any Junos device. It the password is wrong, it will complain
+# but keep trying.
 #
 def Login():
     Log( 0,'In login...')
@@ -234,26 +283,27 @@ def Login():
     if i == 0:
         Log( 0,f'Sending {password}')
         conn.sendline(f'{password}')
+
     elif i == 1:
         Log( 1,'Send cli')
         conn.sendline('cli')
 
     elif i == 2:
         Log( 1,'Timeout in Login')
-#        exit()
         return()        
+
     Log( 0,'Look for prompt')
 
     i = conn.expect(['Login incorrect', pexpect.TIMEOUT, f'{user}@', f'{user}>' ], timeout=60)
 
     if i == 0:
         Log( 1,f'Password does not work!')
-#        exit()
         return()        
+
     elif i == 1:
         Log( 1,f'Timed out waiting for prompt.')
-#        exit()
         return()        
+
     elif i == 2:
         Log( 1,'Logged in...')
     return
@@ -261,12 +311,18 @@ def Login():
 
 #
 # Main
+# Here we
+# 1) Read the config file
+# 2) Open the logfile
+# 3) Open the PID file
+# 4) Create the connection to the serial port.
+# Then we loop trying to login and zeroize any device that we get plugged into. 
 #
 
 if __name__ == "__main__":
 
     syslog.syslog('Starting cz...')
-#    (port, debug, user, password, reboot, zero, logfile) = ParseConfigFile('./cz.conf')
+
     (port, debug, user, password, reboot, zero, logfile) = ParseConfigFile('/etc/cz.conf')    
 
     lf = OpenLog(logfile)
@@ -284,14 +340,18 @@ if __name__ == "__main__":
     Log( 0,f'Reboot: {reboot}')
 
     PidFile()
-#    exit()
     
     conn = pexpect.spawn(f"telnet {ip} {port}")
 
 #    if Debug:
 #        Log( 0,'Turn on logging...')
 #        conn.logfile = sys.stdout.buffer
-        
+
+# I try to handle any state that the switch might be in. Hopefully, it is sitting at a Login: prompt, but
+# someone may have left themselves logged in. Anoyingly, once you login, you get a message 'Last login:'. That
+# is handled. Also handle if the port is already in use by another script. I don't expect to see this ever.
+# It handles loging in as root or a normal user. 
+
     while True:
         Log( 0,'Looping...')
         conn.sendline()
@@ -344,5 +404,5 @@ if __name__ == "__main__":
             Log( 1,'Timeout!')
             conn.sendline()
 
-#    Log( 0,str(conn))
+# Bye bye
     conn.kill(0)        
