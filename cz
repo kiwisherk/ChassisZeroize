@@ -120,11 +120,12 @@ def ParseConfigFile(file):
 #
 def OpenLog(file):
 
-    if os.path.isfile(file):
-        os.rename(file, file+".old")
+#    if os.path.isfile(file):
+#        os.rename(file, file+".old")
 
     try:
-        f = open(file, 'w')
+        f = open(file, 'a')
+#        f = open(file, 'w')
     except:
         syslog.syslog(f"Can't open {file}. Aborting!")
     f.write('\n')
@@ -300,7 +301,7 @@ def Login():
 
     Log( 0,'Look for prompt')
 
-    i = conn.expect(['Login incorrect', pexpect.TIMEOUT, f'{user}@', f'{user}>' ], timeout=60)
+    i = conn.expect(['Login incorrect', pexpect.TIMEOUT, f'{user}.*@', f'{user}.*>' ], timeout=60)
 
     if i == 0:
         Log( 1,f'Password does not work!')
